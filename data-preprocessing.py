@@ -3,17 +3,35 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
 
 # %%
-from matplotlib.font_manager import FontProperties
-myfont=FontProperties(fname=r'C:\Windows\Fonts\msyh.ttc',size=10)
-sns.set(font=myfont.get_name())
+# from matplotlib.font_manager import FontProperties
+sns.set(font='SimHei')
+
+# %% 
+# set data files
+datasetConfig = {
+  'train': {
+    'base': 'base_train_sum.csv',
+    'money': 'money_report_train_sum.csv',
+    'patent': 'patent_train_sum.csv',
+    'report': 'year_report_train_sum.csv'
+  },
+  'validate': {
+    'base': 'base_verify1.csv',
+    'money': 'money_information_verify1.csv',
+    'patent': 'patent_information_verify1.csv',
+    'report': 'year_report_verify1.csv'
+  }
+}
+mode = 'train'
 
 # %%
-basedf = pd.read_csv('dataset/base_train_sum.csv')
-moneydf = pd.read_csv('dataset/money_report_train_sum.csv')
-patentdf = pd.read_csv('dataset/patent_train_sum.csv')
-reportdf = pd.read_csv('dataset/year_report_train_sum.csv')
+basedf = pd.read_csv(os.path.join('dataset', datasetConfig[mode]['base']))
+moneydf = pd.read_csv(os.path.join('dataset', datasetConfig[mode]['money']))
+patentdf = pd.read_csv(os.path.join('dataset', datasetConfig[mode]['patent']))
+reportdf = pd.read_csv(os.path.join('dataset', datasetConfig[mode]['report']))
 
 # %%
 # fill NA in basedf
@@ -35,7 +53,7 @@ patentdf = pd.concat([patentdf['ID'],
 
 # %%
 # fill NA in moneydf
-# filling with quota-rate relationship
+# filling with quota-rate relationship 存在先验假设
 moneyCategories = {'债权融资': 0.08, '股权融资': 0.04, '内部融资和贸易融资': 0.06, '项目融资和政策融资': 0.06}
 for c, rate in moneyCategories.items():
   quota = c+'额度'
@@ -68,16 +86,16 @@ reportdf.iloc[:, 6:] = othersIncomeRate.fillna(othersIncomeRate.median()).mul(re
 
 # %%
 # store results
-basedf.to_hdf('dataset/preprocessed-data.h5', key='base_train')
-patentdf.to_hdf('dataset/preprocessed-data.h5', key='patent_train')
-moneydf.to_hdf('dataset/preprocessed-data.h5', key='money_train')
-reportdf.to_hdf('dataset/preprocessed-data.h5', key='report_train')
+basedf.to_hdf('dataset/preprocessed-data.h5', key='base_'+mode)
+patentdf.to_hdf('dataset/preprocessed-data.h5', key='patent_'+mode)
+moneydf.to_hdf('dataset/preprocessed-data.h5', key='money_'+mode)
+reportdf.to_hdf('dataset/preprocessed-data.h5', key='report_'+mode)
 
 # %%
 corpdf = pd.merge(basedf, patentdf, how='inner', on='ID')
 financedf = pd.merge(moneydf, reportdf, how='inner', on=['ID', 'year'])
-corpdf.to_hdf('dataset/preprocessed-data.h5', key='corp_train')
-financedf.to_hdf('dataset/preprocessed-data.h5', key='finance_train')
+financedf = pd.merge(financedf, corpdf.flag, how='inner', left_on='ID', right_on=corpdf.ID)
+corpdf.to_hdf('dataset/preprocessed-data.h5', key='corp_'+mode)
+financedf.to_hdf('dataset/preprocessed-data.h5', key='finance_'+mode)
 
 # %%
-# feature engineering ? 
