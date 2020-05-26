@@ -28,6 +28,12 @@ datasetConfig = {
     'patent': 'patent_information_verify1.csv',
     'report': 'year_report_verify1.csv'
   },
+  'validate2': {
+    'base': 'base_verify2_sum.csv',
+    'finance': 'money_report_verify2_sum.csv',
+    'patent': 'knowledge_verify2_sum.csv',
+    'report': 'year_report_verify2_sum.csv'
+  },
   'test': {
     'base': 'base_test_sum.csv',
     'finance': 'money_report_test_sum.csv',
@@ -35,7 +41,7 @@ datasetConfig = {
     'report': 'year_report_test_sum.csv'
   }
 }
-mode = 'validate'
+MODE = 'test'
 
 # %%
 def mypairplot(df, flag, dots):
@@ -52,38 +58,19 @@ def mypairplot(df, flag, dots):
   g.map_lower(sns.kdeplot, shade=True, shade_lowest=False)
   g.add_legend()
 
-def univarTest(df, flag, method='chi2'):
-  df = pd.merge(df, flag, on='ID').drop('ID', axis=1).dropna()
-  df.iloc[:, :-1] = preprocessing.minmax_scale(df.iloc[:, :-1])
-  methods = {
-    'chi2': feature_selection.chi2,
-    'f': feature_selection.f_classif,
-    'mutal': feature_selection.mutual_info_classif
-  }
-  if method == 'mutal':
-    score = methods[method](df.iloc[:, :-1], df.flag)
-    sig = pd.DataFrame({'feature': df.columns[:-1], method: score, 'score': score})
-  else:
-    score, pv = methods[method](df.iloc[:, :-1], df.flag)
-    sig = pd.DataFrame({'feature': df.columns[:-1], method: score, 'p': pv})
-    sig['score'] = -np.log(sig.p)
-  return sig.sort_values('score', ascending=False)
-
-def plotFeatureSig(sig):
-  sig.plot.bar(x='feature', y='score')
-
 # %%
 basedf, financedf, patentdf, reportdf = (pd.read_csv(os.path.join(
-  'dataset', datasetConfig[mode][sub])) for sub in datasetConfig['train'].keys())
-flagdf = basedf[['ID', 'flag']]
-basedf = basedf.drop('flag', axis=1)
+  'dataset', datasetConfig[MODE][sub])) for sub in datasetConfig['train'].keys())
+if MODE != 'test':
+  flagdf = basedf[['ID', 'flag']]
+  basedf = basedf.drop('flag', axis=1)
 basedf0, financedf0, patentdf0, reportdf0 = basedf.copy(), financedf.copy(), patentdf.copy(), reportdf.copy()
 
 # %%
 # fill NA in basedf
 basedfNumeric = basedf[['ID', '注册时间', '注册资本', '控制人持股比例']]
 basedfNumeric = basedfNumeric.fillna(basedfNumeric.mean())
-basedf[['行业', '区域', '企业类型', '控制人类型']] = basedf[['行业', '区域', '企业类型', '控制人类型']].fillna('NA')
+# basedf[['行业', '区域', '企业类型', '控制人类型']] = basedf[['行业', '区域', '企业类型', '控制人类型']].fillna('NA')
 basedf = pd.concat([basedfNumeric,
                     pd.get_dummies(basedf.行业, prefix='行业'),
                     pd.get_dummies(basedf.区域, prefix='区域'),
@@ -92,7 +79,8 @@ basedf = pd.concat([basedfNumeric,
 
 # %%
 # fill NA in patentdf
-patentdf = patentdf.fillna('NA')
+# patentdf = patentdf.fillna('NA')
+patentdf.iloc[:, 1:] = patentdf.iloc[:, 1:].astype('float')
 patentdf = pd.concat([patentdf.ID,
                       pd.get_dummies(patentdf.专利, prefix='专利'),
                       pd.get_dummies(patentdf.商标, prefix='商标'),
@@ -105,15 +93,9 @@ def addTimeSeriesFeatures(df):
   baseline = df.drop('year', axis=1).groupby('ID').mean()
   baseline.columns = [c + '_mean' for c in baseline.columns]
 
+  def getYearData(yr): return df[df.year == yr].set_index('ID').drop('year', axis=1)
+
   # get year diff
-  yearGrp = df.groupby('year')
-  commonID = np.intersect1d(yearGrp.get_group(2015).ID,
-                            yearGrp.get_group(2016).ID)
-  commonID = np.intersect1d(yearGrp.get_group(2017).ID, commonID)
-
-  def getYearData(yr): return df[(df.year == yr) & (df.ID.isin(commonID))]\
-                              .set_index('ID').drop('year', axis=1)
-
   d2015, d2016, d2017 = (getYearData(y) for y in (2015, 2016, 2017))
   diffmean = d2017 - d2015
   diffmean.columns = [c + '_diff_mean' for c in diffmean.columns]
@@ -121,6 +103,26 @@ def addTimeSeriesFeatures(df):
   diffdiff.columns = [c + '_diff_diff' for c in diffdiff.columns]
 
   return pd.concat([baseline, diffmean, diffdiff], axis=1)
+
+# %%
+def fillYear(df):
+  yearPad = df.year.fillna('pad')
+  yearGrp = df.groupby(yearPad)
+
+  commonID = np.intersect1d(yearGrp.get_group(2015).ID,
+                            yearGrp.get_group(2016).ID)
+  commonID = np.intersect1d(yearGrp.get_group(2017).ID, commonID)
+
+  wrongID = np.setdiff1d(df.ID, commonID)
+  for i in wrongID:
+    years = df.year[df.ID==i]
+    missingYear = set([2015., 2016., 2017.]) - set(years)
+    missingYearIdx = years[years.isna()].index
+    for idx in missingYearIdx:
+      df.at[idx, 'year'] = missingYear.pop()
+  
+  df.loc[df.year.isna(), 'year'] = yearPad[df.year.isna()]
+  return df
 
 # %%
 # fill NA in financedf
@@ -139,7 +141,7 @@ for c, rate in financeCategories.items():
 # log-like transformation
 financedf.iloc[:, 2:] = financedf.iloc[:, 2:].fillna(0).applymap(np.log1p)
 # fill NA in year by padding
-financedf.year = financedf.year.fillna(method='pad')
+financedf = fillYear(financedf)
 financedf = addTimeSeriesFeatures(financedf)
 
 # %%
@@ -147,8 +149,6 @@ financedf = addTimeSeriesFeatures(financedf)
 # discard surplus, duplicate
 reportdf = reportdf.drop('所有者权益合计', axis=1)
 
-# padding year
-reportdf.year = reportdf.year.fillna(method='pad')
 # filling personnel by mean, since irrelavance
 reportdf.从业人数 = reportdf.从业人数.fillna(reportdf.从业人数.mean())
 reportdf.资产总额 = reportdf.资产总额.fillna(reportdf.资产总额.median())
@@ -161,23 +161,28 @@ ratePairs = {
 for x in ratePairs.keys():
   for y in ratePairs[x]:
     slope = (reportdf[y] - reportdf[y].min()) / (reportdf[x] - reportdf[x].min())
-    angle = np.arctan(slope.fillna(angle.median()))
+    yna = reportdf[y].isna()
+    reportdf.loc[yna, y] = slope.median() * (reportdf.loc[yna, x] - reportdf[x].min()) + reportdf[y].min()
+    angle = np.arctan(slope.fillna(slope.median()))
     reportdf[y+'/'+x] = angle
 # reportdf = reportdf.drop(np.sum(list(ratePairs.values())), axis=1)
+# padding year
+reportdf = fillYear(reportdf)
 reportdf = addTimeSeriesFeatures(reportdf)
 
 # %%
 # store results
-basedf.to_hdf('dataset/preprocessed-data.h5', key='base_'+mode)
-patentdf.to_hdf('dataset/preprocessed-data.h5', key='patent_'+mode)
-financedf.to_hdf('dataset/preprocessed-data.h5', key='finance_'+mode)
-reportdf.to_hdf('dataset/preprocessed-data.h5', key='report_'+mode)
-flagdf.to_hdf('dataset/preprocessed-data.h5', key='flag_'+mode)
+basedf.to_hdf('dataset/preprocessed-data.h5', key='base_'+MODE)
+patentdf.to_hdf('dataset/preprocessed-data.h5', key='patent_'+MODE)
+financedf.to_hdf('dataset/preprocessed-data.h5', key='finance_'+MODE)
+reportdf.to_hdf('dataset/preprocessed-data.h5', key='report_'+MODE)
+if MODE != 'test':
+  flagdf.to_hdf('dataset/preprocessed-data.h5', key='flag_'+MODE)
 
 # %%
 aiodf = basedf
 for df in (patentdf, financedf, reportdf):
   aiodf = pd.merge(aiodf, df, on='ID')
-aiodf.to_hdf('dataset/preprocessed-data.h5', key='all_'+mode)
+aiodf.to_hdf('dataset/preprocessed-data.h5', key='all_'+MODE)
 
 # %%
