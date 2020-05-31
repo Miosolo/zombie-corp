@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
 
 from sklearn import cluster, manifold, neighbors, linear_model, ensemble, neural_network, tree, svm
 from sklearn import metrics, model_selection, preprocessing, feature_selection
@@ -40,16 +41,19 @@ def univarTest(df, flag, method='chi2'):
 def plotFeatureSig(sig):
   sig.plot.barh(x='feature', y='score', grid=True, figsize=(10, 20))
 
-def decisionTreeViz(model):
+def decisionTreeViz(model, fileName=None):
   dot_data = StringIO()
   export_graphviz(model, feature_names=features, class_names=['正常企业', '僵尸企业'],
                   out_file=dot_data, filled=True, rounded=True, special_characters=True)
   graph = pydotplus.graph_from_dot_data(dot_data.getvalue())
-  SVG(graph.create_svg())
+  if fileName:
+    with open(os.path.join('figures', fileName), 'wb') as f:
+      f.write(graph.create_svg())
+  return SVG(graph.create_svg())
 
 def tryAllClassifers(Xtrain, Xtest, ytrain, ytest):
   # try with different classifiers
-  _, axes = plt.subplots(3, 3, figsize=(12, 12))
+  _, axes = plt.subplots(3, 3, figsize=(14, 14))
   models = [neighbors.KNeighborsClassifier(n_neighbors=5),
             linear_model.LogisticRegression(),
             svm.SVC(),
@@ -66,41 +70,44 @@ def tryAllClassifers(Xtrain, Xtest, ytrain, ytest):
     f1 = metrics.f1_score(y_true=ytest, y_pred=clf.predict(Xtest))
     ax.set(title=f'{type(clf).__name__}\nF1={f1:.2f}')
 
-def tryClassifiersCV(X, y, models=None, cv=10):
+def tryClassifiersCV(X, y, models=None, cv=5):
   # cross validation
   if models is None:
-    models = [linear_model.LogisticRegression(),
-              tree.DecisionTreeClassifier(),
+    models = [tree.DecisionTreeClassifier(),
+              ensemble.BaggingClassifier(),
+              ensemble.RandomForestClassifier(),
+              ensemble.AdaBoostClassifier(),
               ensemble.GradientBoostingClassifier()]
   scores = {}
   for model in models:
-    score = model_selection.cross_val_score(model, X, y, cv=10, n_jobs=-1)
+    score = model_selection.cross_val_score(model, X, y, cv=cv, n_jobs=-1)
     modelName = type(model).__name__
     scores[modelName] = score
     plt.plot(score, label=modelName)
   plt.legend()
 
+  return scores
+
 
 # %%
-# # validate -> train
-# trainFeatures = pd.read_hdf('dataset/preprocessed-data.h5', key='all_validate')
-# trainFeatures = pd.concat([trainFeatures,
-#                            pd.read_hdf('dataset/preprocessed-data.h5', key='all_validate2')])
-# trainLabels = pd.read_hdf('dataset/preprocessed-data.h5', key='flag_validate')
-# trainLabels = pd.concat([trainLabels, 
-#                          pd.read_hdf('dataset/preprocessed-data.h5', key='flag_validate2')])
-# testFeatures = pd.read_hdf('dataset/preprocessed-data.h5', key='all_train')
-# testLabels = pd.read_hdf('dataset/preprocessed-data.h5', key='flag_train')
+# validate -> train
+trainFeatures = pd.read_hdf('dataset/preprocessed-data.h5', key='all_validate')
+trainFeatures = pd.concat([trainFeatures,
+                           pd.read_hdf('dataset/preprocessed-data.h5', key='all_validate2')])
+trainLabels = pd.read_hdf('dataset/preprocessed-data.h5', key='flag_validate')
+trainLabels = pd.concat([trainLabels, 
+                         pd.read_hdf('dataset/preprocessed-data.h5', key='flag_validate2')])
 
-# train -> validate
-trainFeatures = pd.read_hdf('dataset/preprocessed-data.h5', key='all_train')
-trainLabels = pd.read_csv('dataset/infer-train-flag.csv')
-testFeatures = pd.read_hdf('dataset/preprocessed-data.h5', key='all_validate')
-testLabels = pd.read_hdf('dataset/preprocessed-data.h5', key='flag_validate')
+testFeatures = pd.read_hdf('dataset/preprocessed-data.h5', key='all_train')
+testLabels = pd.read_hdf('dataset/preprocessed-data.h5', key='flag_train')
+
+# # train -> validate
+# trainFeatures = pd.read_hdf('dataset/preprocessed-data.h5', key='all_train')
+# trainLabels = pd.read_csv('dataset/infer-train-flag.csv')
+# testFeatures = pd.read_hdf('dataset/preprocessed-data.h5', key='all_validate')
+# testLabels = pd.read_hdf('dataset/preprocessed-data.h5', key='flag_validate')
 
 inferenceFeatures = pd.read_hdf('dataset/preprocessed-data.h5', key='all_test')
-
-# inferenceLabels = pd.read_hdf('dataset/preprocessed-data.h5', key='all_test')
 
 # TRAIN_SAMPLES = 4000
 # TEST_SAMPLES = 1000
@@ -130,14 +137,15 @@ mutalTest = univarTest(trainFeatures, trainLabels, 'mutal')
 features |= set(mutalTest.feature[mutalTest.score > 0.2])
 
 # %%
-trainFeatures = trainFeatures[list(features) + ['ID']]
-testFeatures = testFeatures[list(features) + ['ID']]
-inferenceFeatures = inferenceFeatures[list(features) + ['ID']]
+trainFeatures = trainFeatures[['ID'] + list(features)]
+testFeatures = testFeatures[['ID'] + list(features)]
+inferenceFeatures = inferenceFeatures[['ID'] + list(features)]
 
 trainSet = pd.merge(trainFeatures, trainLabels, how='inner', on='ID')
 trainSet = trainSet.dropna().set_index('ID')
 testSet = pd.merge(testFeatures, testLabels, how='inner', on='ID')
 testSet = testSet.set_index('ID')
+inferenceFeatures = inferenceFeatures.set_index('ID')
 
 features = trainSet.columns[:-1]
 
@@ -145,11 +153,10 @@ features = trainSet.columns[:-1]
 # prepare data
 
 # trainSet = trainSet.sample(TRAIN_SAMPLES)
-
 X, y = trainSet.drop('flag', axis=1), trainSet.flag
 
-# X, y = RandomUnderSampler().fit_resample(X, y)
-X, y = SMOTE().fit_resample(X, y)
+X, y = RandomUnderSampler().fit_resample(X, y)
+# X, y = SMOTE().fit_resample(X, y)
 # self-labeling
 # Xtrain, Xtest, ytrain, ytest = model_selection.train_test_split(X, y, test_size=0.2)
 
@@ -218,29 +225,38 @@ gridSearch1.fit(X, y)
 
 # %%
 # learning rate: 0.21
-lrRange = np.arange(0.01, 1.01, 0.05)
+from sklearn.experimental import enable_hist_gradient_boosting  # noqa
+lrRange = np.arange(0.01, 1.01, 0.02)
 paramSearch2 = {'learning_rate': lrRange}
-gridSearch2 = model_selection.GridSearchCV(ensemble.GradientBoostingClassifier(n_estimators=20),
+gridSearch2 = model_selection.GridSearchCV(ensemble.HistGradientBoostingClassifier(),
                                            cv=5, scoring='f1', param_grid=paramSearch2, n_jobs=-1, verbose=1)
 gridSearch2.fit(X, y)
 
 # %%
 # tree depth: 4; min_samples_split: 196
-paramSearch3 = {'max_depth':range(2,5,1), 'min_samples_split':range(190, 220, 2)}
-gridSearch3 = model_selection.GridSearchCV(ensemble.GradientBoostingClassifier(n_estimators=20, learning_rate=0.2),
-                                           cv=5, scoring='f1', param_grid=paramSearch3, n_jobs=-1, verbose=1)
+paramSearch3 = {'max_depth':range(2,5,1), 'min_samples_split':range(2, 220, 10)}
+gridSearch3 = model_selection.GridSearchCV(ensemble.GradientBoostingClassifier(learning_rate=0.2),
+                                           cv=3, scoring='f1', param_grid=paramSearch3, n_jobs=-1, verbose=1)
 gridSearch3.fit(X, y)
 
 # %%
-sns.heatmap(gridSearch3.cv_results_['mean_test_score'].reshape(3, 15))
+df = pd.DataFrame(data=gridSearch3.cv_results_['mean_test_score'].reshape(3, 22), index=range(2,5,1), columns=range(2, 220, 10))
+fig = plt.figure(figsize=(6,3))
+g = sns.heatmap(df)
+g.set(ylabel='max_depth', xlabel='min_samples_split')
 
 # %%
 # min_samples_leaf: 125
-paramSearch4 = {'min_samples_leaf': range(1,200,2)}
-gridSearch4 = model_selection.GridSearchCV(ensemble.GradientBoostingClassifier(
-  n_estimators=20, learning_rate=0.2, max_depth=3, min_samples_split=196),
+paramSearch4 = {'min_samples_leaf': range(1,200,2), 'max_depth':range(2,6,1)}
+gridSearch4 = model_selection.GridSearchCV(ensemble.HistGradientBoostingClassifier(learning_rate=0.2, max_depth=3),
   cv=5, scoring='f1', param_grid=paramSearch4, n_jobs=-1, verbose=1)
 gridSearch4.fit(X, y)
+
+# %%
+df = pd.DataFrame(data=gridSearch4.cv_results_['mean_test_score'].reshape(4, 100), columns=range(1,200,2), index=range(2,6,1))
+fig = plt.figure(figsize=(20, 7))
+g = sns.heatmap(df)
+g.set(ylabel='max_depth', xlabel='min_samples_leaf')
 
 # %%
 # subsample: 0.57
@@ -249,6 +265,7 @@ gridSearch5 = model_selection.GridSearchCV(ensemble.GradientBoostingClassifier(
   n_estimators=110, learning_rate=0.2, max_depth=3, min_samples_leaf=125, min_samples_split=196),
   cv=5, scoring='f1', param_grid=paramSearch5, n_jobs=-1, verbose=1)
 gridSearch5.fit(X, y)
+
 
 # %%
 bestModel = ensemble.GradientBoostingClassifier(
@@ -266,20 +283,3 @@ plt.legend()
 bestModel = ensemble.GradientBoostingClassifier(
   n_estimators=110, learning_rate=0.2, max_depth=3, min_samples_leaf=125, min_samples_split=196, subsample=0.57)
 bestModel.fit(X, y)
-
-testSetNoNA = testSet.dropna()
-Xtest, ytest = testSetNoNA.drop('flag', axis=1), testSetNoNA.flag
-Xtest = scaler.transform(Xtest)
-metrics.plot_confusion_matrix(bestModel, Xtest, ytest)
-
-# %%
-# predict training set labels
-joblib.dump(bestModel, 'models/GBDT-from-validation.pkl')
-
-Xtest = scaler.transform(testSet.drop('flag', axis=1))
-inferLabels = pd.DataFrame({'ID': testSet.index, 'flag': bestModel.predict(Xtest)})
-
-# %%
-inferLabels.to_csv('dataset/infer-train-flag.csv', index=False)
-
-# %%
