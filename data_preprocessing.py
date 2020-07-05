@@ -11,7 +11,11 @@ from sklearn import feature_selection
 
 # %%
 def mypairplot(df, flag, dots):
-  df = df.set_index('ID')
+  try:
+    df = df.set_index('ID')
+  except:
+    pass
+  
   df.iloc[:, :] = preprocessing.scale(df.to_numpy())
   df = pd.merge(df, flag, left_index=True, right_on='ID').drop('ID', axis=1).sample(dots)
   try:

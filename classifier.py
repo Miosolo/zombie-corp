@@ -18,7 +18,7 @@ import pydotplus
 import graphviz
 from IPython.display import SVG
 
-from sklearn.externals import joblib
+import pickle
 
 # %%
 def univarTest(df, flag, method='chi2'):
@@ -41,15 +41,6 @@ def univarTest(df, flag, method='chi2'):
 def plotFeatureSig(sig):
   sig.plot.barh(x='feature', y='score', grid=True, figsize=(10, 20))
 
-def decisionTreeViz(model, fileName=None):
-  dot_data = StringIO()
-  export_graphviz(model, feature_names=features, class_names=['正常企业', '僵尸企业'],
-                  out_file=dot_data, filled=True, rounded=True, special_characters=True)
-  graph = pydotplus.graph_from_dot_data(dot_data.getvalue())
-  if fileName:
-    with open(os.path.join('figures', fileName), 'wb') as f:
-      f.write(graph.create_svg())
-  return SVG(graph.create_svg())
 
 def tryAllClassifers(Xtrain, Xtest, ytrain, ytest):
   # try with different classifiers
@@ -88,6 +79,24 @@ def tryClassifiersCV(X, y, models=None, cv=5):
 
   return scores
 
+def paramSearch2d(ps: dict, X, y):
+  if len(ps) != 2:
+    raise RuntimeError()
+  k1, k2 = ps.keys()
+  l1, l2 = map(lambda v: len(v), ps.values())
+
+  gs = model_selection.GridSearchCV(tree.DecisionTreeClassifier(),
+    cv=5, scoring='f1', param_grid=ps, n_jobs=-1, verbose=1)
+  gs.fit(X, y)
+
+  plt.figure(figsize=(l2/3, l1/3))
+  df = pd.DataFrame(data=gs.cv_results_['mean_test_score']
+       .reshape((l2, l1)).T, index=ps[k1], columns=ps[k2])
+
+  g = sns.heatmap(df)
+  g.set(ylabel=k1, xlabel=k2)
+
+  return gs
 
 # %%
 # validate -> train
@@ -151,135 +160,80 @@ features = trainSet.columns[:-1]
 
 # %%
 # prepare data
-
 # trainSet = trainSet.sample(TRAIN_SAMPLES)
 X, y = trainSet.drop('flag', axis=1), trainSet.flag
-
-X, y = RandomUnderSampler().fit_resample(X, y)
-# X, y = SMOTE().fit_resample(X, y)
-# self-labeling
-# Xtrain, Xtest, ytrain, ytest = model_selection.train_test_split(X, y, test_size=0.2)
-
-# # %%
-# # compare up and down sampling
-# # up-sampling
-# XtrainUp, ytrainUp = SMOTE().fit_resample(X, y)
-# # under-sampling
-# XtrainDown, ytrainDown = RandomUnderSampler().fit_resample(X, y)
-
-# model = linear_model.LogisticRegression()
-# plt.plot(model_selection.cross_val_score(model, XtrainUp, ytrainUp, cv=100, n_jobs=-1), label='upsampling')
-# plt.plot(model_selection.cross_val_score(model, XtrainDown, ytrainDown, cv=100, n_jobs=-1), label='downsampling')
-# plt.legend()
+scaler = preprocessing.StandardScaler().fit(X)
+X = scaler.transform(X)
+# X, y = RandomUnderSampler().fit_resample(X, y)
+X, y = SMOTE().fit_resample(X, y)
 
 # %%
-# rough test for GBDT
+# rough test
 pipe = Pipeline([('scaler', preprocessing.StandardScaler()),
-                 ('GBDT', ensemble.GradientBoostingClassifier(n_estimators=110, learning_rate=0.2, 
-                                                              max_depth=4, min_samples_leaf=125, 
-                                                              min_samples_split=196, subsample=0.57))])
+                 ('DecisionTree', tree.DecisionTreeClassifier(min_samples_split=4, max_depth=4, 
+                                                              min_samples_leaf=3, splitter='best', 
+                                                              min_impurity_decrease=0., class_weight='balanced'))
+                ])
 # cross-validation
-selfScores = model_selection.cross_val_score(pipe, X, y, cv=10, n_jobs=-1)
+selfScores = model_selection.cross_val_score(pipe, X, y, cv=20, n_jobs=-1)
+plt.plot(selfScores)
+
+# %%
 # on test set
 pipe.fit(X, y)
 
 testSet = testSet.dropna()
 Xtest, ytest = testSet.drop('flag', axis=1), testSet.flag
+Xtest = scaler.transform(Xtest)
 metrics.plot_confusion_matrix(pipe, Xtest, ytest)
 metrics.plot_roc_curve(pipe, Xtest, ytest)
 
 # %%
-joblib.dump(pipe, 'models/GBDT-pipe-from-train.pkl')
-inference = pipe.predict(inferenceFeatures.drop('ID', axis=1))
-inferenceFlag = pd.DataFrame({'ID': inferenceFeatures.ID, 'flag': inference})
+with open('models/CART-from-validation.pkl', 'wb') as f:
+  pickle.dump(pipe, f)
+
+inference = pipe.predict(scaler.transform(inferenceFeatures))
+inferenceFlag = pd.DataFrame({'ID': inferenceFeatures.index, 'flag': inference})
 inferenceFlag.flag = inferenceFlag.flag.astype('int')
-inferenceFlag.to_csv('results/infer-test-flag-from-train.csv', index=False)
+inferenceFlag.to_csv('results/infer-test-flag-from-validation.csv', index=False)
+
+# param searching for Decision Tree
+# %%
+paramSearch1 = {'max_depth':range(2, 20, 1), 'min_samples_split':range(1, 50, 1)}
+gridSearch1 = paramSearch2d(paramSearch1, X, y)
+# => min_samples_split <= 5
 
 # %%
-# GBDT param searching
-paramScores = {}
-# gbmBaseline = ensemble.GradientBoostingClassifier()
-treeBaseline = tree.DecisionTreeClassifier()
-prediction = model_selection.cross_val_predict(treeBaseline, X, y, cv=10, n_jobs=-1)
-hardIdx = prediction != y
-linearBaseline = linear_model.LogisticRegression()
-prediction = model_selection.cross_val_predict(linearBaseline, X, y, cv=10)
-hardIdx |= prediction != y
-randomIdx = np.random.choice([True, False], y.shape, p=[0.4, 0.6])
-idx = hardIdx | randomIdx
-
-Xhard, yhard = X[idx], y[idx]
-
+paramSearch2 = {'min_samples_leaf': range(1,20,1), 'max_depth':range(2, 20, 1)}
+gridSearch2 = paramSearch2d(paramSearch2, X, y)
+# min_samples_leaf <= 3 & max_depth < 11
 
 # %%
-def plotRangeScore(ran, gridSearch):
-  plt.plot(ran, gridSearch.cv_results_['mean_test_score'])
+paramSearch3 = {'splitter': ['best', 'random'], 'max_depth':range(2, 20, 1)}
+gridSearch3 = paramSearch2d(paramSearch3, X, y)
+# => best
 
 # %%
-# n-estimators: 110
-estimatorRange = list(range(1, 2, 20)) + list(range(20, 200, 10))
-paramSearch1 = {'n_estimators': estimatorRange}
-gridSearch1 = model_selection.GridSearchCV(ensemble.GradientBoostingClassifier(learning_rate=0.2),
-                                           cv=5, scoring='f1', param_grid=paramSearch1, n_jobs=-1, verbose=1)
-gridSearch1.fit(X, y)
+paramSearch4 = {'max_leaf_nodes': range(10, 500, 10), 'max_depth':range(2, 20, 1)}
+gridSearch4 = paramSearch2d(paramSearch4, X, y)
+# => max_depth <=4
 
 # %%
-# learning rate: 0.21
-from sklearn.experimental import enable_hist_gradient_boosting  # noqa
-lrRange = np.arange(0.01, 1.01, 0.02)
-paramSearch2 = {'learning_rate': lrRange}
-gridSearch2 = model_selection.GridSearchCV(ensemble.HistGradientBoostingClassifier(),
-                                           cv=5, scoring='f1', param_grid=paramSearch2, n_jobs=-1, verbose=1)
-gridSearch2.fit(X, y)
+paramSearch5 = {'class_weight': list(map(lambda f: {0: 1-f, 1: f}, np.arange(0, 1, 0.05))), 'max_depth':range(2, 20, 1)}
+gridSearch5 = paramSearch2d(paramSearch5, X, y)
+# => max_depth > 2
 
 # %%
-# tree depth: 4; min_samples_split: 196
-paramSearch3 = {'max_depth':range(2,5,1), 'min_samples_split':range(2, 220, 10)}
-gridSearch3 = model_selection.GridSearchCV(ensemble.GradientBoostingClassifier(learning_rate=0.2),
-                                           cv=3, scoring='f1', param_grid=paramSearch3, n_jobs=-1, verbose=1)
-gridSearch3.fit(X, y)
+paramSearch6 = {'min_impurity_decrease': np.arange(0, 0.02, 0.001), 'max_depth':range(2, 20, 1)}
+gridSearch6 = paramSearch2d(paramSearch6, X, y)
+# => min_impurity_decrease = 0
 
 # %%
-df = pd.DataFrame(data=gridSearch3.cv_results_['mean_test_score'].reshape(3, 22), index=range(2,5,1), columns=range(2, 220, 10))
-fig = plt.figure(figsize=(6,3))
-g = sns.heatmap(df)
-g.set(ylabel='max_depth', xlabel='min_samples_split')
-
-# %%
-# min_samples_leaf: 125
-paramSearch4 = {'min_samples_leaf': range(1,200,2), 'max_depth':range(2,6,1)}
-gridSearch4 = model_selection.GridSearchCV(ensemble.HistGradientBoostingClassifier(learning_rate=0.2, max_depth=3),
-  cv=5, scoring='f1', param_grid=paramSearch4, n_jobs=-1, verbose=1)
-gridSearch4.fit(X, y)
-
-# %%
-df = pd.DataFrame(data=gridSearch4.cv_results_['mean_test_score'].reshape(4, 100), columns=range(1,200,2), index=range(2,6,1))
-fig = plt.figure(figsize=(20, 7))
-g = sns.heatmap(df)
-g.set(ylabel='max_depth', xlabel='min_samples_leaf')
-
-# %%
-# subsample: 0.57
-paramSearch5 = {'subsample': np.arange(0.55, 0.85, 0.01)}
-gridSearch5 = model_selection.GridSearchCV(ensemble.GradientBoostingClassifier(
-  n_estimators=110, learning_rate=0.2, max_depth=3, min_samples_leaf=125, min_samples_split=196),
-  cv=5, scoring='f1', param_grid=paramSearch5, n_jobs=-1, verbose=1)
-gridSearch5.fit(X, y)
-
-
-# %%
-bestModel = ensemble.GradientBoostingClassifier(
-  n_estimators=110, learning_rate=0.2, max_depth=4, min_samples_leaf=125, min_samples_split=196, subsample=0.57)
-basicModel = ensemble.GradientBoostingClassifier()
+bestModel = tree.DecisionTreeClassifier(min_samples_split=4, max_depth=4, min_samples_leaf=3, 
+  splitter='best', min_impurity_decrease=0., class_weight='balanced', )
+basicModel = tree.DecisionTreeClassifier()
 bestModelScores = model_selection.cross_val_score(bestModel, X, y, cv=20, n_jobs=-1)
 basicModelScores = model_selection.cross_val_score(basicModel, X, y, cv=20, n_jobs=-1)
-
-# %%
-plt.plot(bestModelScores, label='best')
-plt.plot(basicModelScores, label='basic')
+plt.plot(bestModelScores, label='selected')
+plt.plot(basicModelScores, label='default')
 plt.legend()
-
-# %%
-bestModel = ensemble.GradientBoostingClassifier(
-  n_estimators=110, learning_rate=0.2, max_depth=3, min_samples_leaf=125, min_samples_split=196, subsample=0.57)
-bestModel.fit(X, y)
