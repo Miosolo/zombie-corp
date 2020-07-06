@@ -179,8 +179,8 @@ if __name__ == "__main__":
   reportdf = addSlopeFeatures(reportdf)
   # reportdf = reportdf.drop(np.sum(list(ratePairs.values())), axis=1)
   # padding year
-  reportdf = fillYear(reportdf)
-  reportdf = addTimeSeriesFeatures(reportdf)
+  # reportdf = fillYear(reportdf)
+  # reportdf = addTimeSeriesFeatures(reportdf)
 
   # %%
   # store results

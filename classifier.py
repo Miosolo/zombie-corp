@@ -65,7 +65,8 @@ def tryClassifiersCV(X, y, models=None, cv=5):
   # cross validation
   if models is None:
     models = [tree.DecisionTreeClassifier(),
-              ensemble.BaggingClassifier(),
+              tree.DecisionTreeClassifier(min_samples_split=4, max_depth=4, min_samples_leaf=3, 
+                splitter='best', min_impurity_decrease=0., class_weight='balanced', ),
               ensemble.RandomForestClassifier(),
               ensemble.AdaBoostClassifier(),
               ensemble.GradientBoostingClassifier()]
@@ -109,6 +110,9 @@ trainLabels = pd.concat([trainLabels,
 
 testFeatures = pd.read_hdf('dataset/preprocessed-data.h5', key='all_train')
 testLabels = pd.read_hdf('dataset/preprocessed-data.h5', key='flag_train')
+
+trainFeatures = pd.concat([trainFeatures, testFeatures])
+trainLabels = pd.concat([trainLabels, testLabels])
 
 # # train -> validate
 # trainFeatures = pd.read_hdf('dataset/preprocessed-data.h5', key='all_train')
@@ -165,7 +169,7 @@ X, y = trainSet.drop('flag', axis=1), trainSet.flag
 scaler = preprocessing.StandardScaler().fit(X)
 X = scaler.transform(X)
 # X, y = RandomUnderSampler().fit_resample(X, y)
-X, y = SMOTE().fit_resample(X, y)
+# X, y = SMOTE().fit_resample(X, y)
 
 # %%
 # rough test
