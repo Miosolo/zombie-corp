@@ -80,20 +80,31 @@ def tryClassifiersCV(X, y, models=None, cv=5):
 
   return scores
 
-def paramSearch2d(ps: dict, X, y):
+def paramSearch2d(ps: dict, X, y, computed=None):
   if len(ps) != 2:
     raise RuntimeError()
-  k1, k2 = ps.keys()
-  l1, l2 = map(lambda v: len(v), ps.values())
 
-  gs = model_selection.GridSearchCV(tree.DecisionTreeClassifier(),
-    cv=5, scoring='f1', param_grid=ps, n_jobs=-1, verbose=1)
-  gs.fit(X, y)
+  if computed:
+    gs = computed
+  else:
+    gs = model_selection.GridSearchCV(tree.DecisionTreeClassifier(),
+      cv=5, scoring='f1', param_grid=ps, n_jobs=-1, verbose=1)
+    gs.fit(X, y)
 
-  plt.figure(figsize=(l2/3, l1/3))
-  df = pd.DataFrame(data=gs.cv_results_['mean_test_score']
-       .reshape((l2, l1)).T, index=ps[k1], columns=ps[k2])
+  k1, k2 = gs.cv_results_['params'][0].keys()
+  l1, l2 = len(ps[k1]), len(ps[k2])
 
+  plt.figure(figsize=sorted([l1/3, l2/3,], reverse=True))
+
+  if l1 > l2:
+    k1, k2 = k2, k1
+    l1, l2 = l2, l1
+    data = gs.cv_results_['mean_test_score'].reshape((l2, l1)).T
+  else:
+    data=gs.cv_results_['mean_test_score'].reshape((l1, l2))
+
+  df = pd.DataFrame(data=data, index=map(lambda o: str(o), ps[k1]), columns=map(lambda o: str(o), ps[k2]))
+  
   g = sns.heatmap(df)
   g.set(ylabel=k1, xlabel=k2)
 
@@ -213,7 +224,7 @@ gridSearch2 = paramSearch2d(paramSearch2, X, y)
 # min_samples_leaf <= 3 & max_depth < 11
 
 # %%
-paramSearch3 = {'splitter': ['best', 'random'], 'max_depth':range(2, 20, 1)}
+paramSearch3 = {'max_depth':range(2, 20, 1), 'splitter': ['best', 'random']}
 gridSearch3 = paramSearch2d(paramSearch3, X, y)
 # => best
 
@@ -223,12 +234,12 @@ gridSearch4 = paramSearch2d(paramSearch4, X, y)
 # => max_depth <=4
 
 # %%
-paramSearch5 = {'class_weight': list(map(lambda f: {0: 1-f, 1: f}, np.arange(0, 1, 0.05))), 'max_depth':range(2, 20, 1)}
+paramSearch5 = {'class_weight': list(map(lambda f: {0: 1-f, 1: f}, np.arange(0, 1, 0.05))), 'max_depth':range(2, 10, 1)}
 gridSearch5 = paramSearch2d(paramSearch5, X, y)
 # => max_depth > 2
 
 # %%
-paramSearch6 = {'min_impurity_decrease': np.arange(0, 0.02, 0.001), 'max_depth':range(2, 20, 1)}
+paramSearch6 = {'min_impurity_decrease': np.arange(0, 0.02, 0.001), 'max_depth':range(2, 10, 1)}
 gridSearch6 = paramSearch2d(paramSearch6, X, y)
 # => min_impurity_decrease = 0
 
