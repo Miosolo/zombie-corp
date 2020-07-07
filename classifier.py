@@ -8,15 +8,15 @@ import os
 from sklearn import cluster, manifold, neighbors, linear_model, ensemble, neural_network, tree, svm
 from sklearn import metrics, model_selection, preprocessing, feature_selection
 from sklearn.pipeline import Pipeline
-from imblearn.over_sampling import SMOTE
-from imblearn.under_sampling import RandomUnderSampler
+# from imblearn.over_sampling import SMOTE
+# from imblearn.under_sampling import RandomUnderSampler
 
-# Decision Tree Viz
-from sklearn.tree import DecisionTreeRegressor, export_graphviz
-from sklearn.externals.six import StringIO
-import pydotplus
-import graphviz
-from IPython.display import SVG
+# # Decision Tree Viz
+# from sklearn.tree import DecisionTreeRegressor, export_graphviz
+# from sklearn.externals.six import StringIO
+# import pydotplus
+# import graphviz
+# from IPython.display import SVG
 
 import pickle
 
@@ -196,7 +196,7 @@ metrics.plot_roc_curve(pipe, Xtest, ytest)
 with open('models/CART-from-validation.pkl', 'wb') as f:
   pickle.dump(pipe, f)
 
-inference = pipe.predict(scaler.transform(inferenceFeatures))
+inference = pipe.predict(inferenceFeatures)
 inferenceFlag = pd.DataFrame({'ID': inferenceFeatures.index, 'flag': inference})
 inferenceFlag.flag = inferenceFlag.flag.astype('int')
 inferenceFlag.to_csv('results/infer-test-flag-from-validation.csv', index=False)

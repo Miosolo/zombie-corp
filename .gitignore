@@ -129,3 +129,4 @@ dmypy.json
 .pyre/
 .vscode/settings.json
 dataset/preprocessed-data.h5
+.DS_Store
