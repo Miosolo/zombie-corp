@@ -177,8 +177,6 @@ features = trainSet.columns[:-1]
 # prepare data
 # trainSet = trainSet.sample(TRAIN_SAMPLES)
 X, y = trainSet.drop('flag', axis=1), trainSet.flag
-scaler = preprocessing.StandardScaler().fit(X)
-X = scaler.transform(X)
 # X, y = RandomUnderSampler().fit_resample(X, y)
 # X, y = SMOTE().fit_resample(X, y)
 
@@ -199,7 +197,6 @@ pipe.fit(X, y)
 
 testSet = testSet.dropna()
 Xtest, ytest = testSet.drop('flag', axis=1), testSet.flag
-Xtest = scaler.transform(Xtest)
 metrics.plot_confusion_matrix(pipe, Xtest, ytest)
 metrics.plot_roc_curve(pipe, Xtest, ytest)
 
@@ -211,6 +208,10 @@ inference = pipe.predict(inferenceFeatures)
 inferenceFlag = pd.DataFrame({'ID': inferenceFeatures.index, 'flag': inference})
 inferenceFlag.flag = inferenceFlag.flag.astype('int')
 inferenceFlag.to_csv('results/infer-test-flag-from-validation.csv', index=False)
+
+# %%
+# set testing features
+X = preprocessing.StandardScaler().fit_transform(X)
 
 # param searching for Decision Tree
 # %%
