@@ -41,6 +41,15 @@ def univarTest(df, flag, method='chi2'):
 def plotFeatureSig(sig):
   sig.plot.barh(x='feature', y='score', grid=True, figsize=(10, 20))
 
+def decisionTreeViz(model, fileName=None):
+  dot_data = StringIO()
+  export_graphviz(model, feature_names=features, class_names=['正常企业', '僵尸企业'],
+                  out_file=dot_data, filled=True, rounded=True, special_characters=True)
+  graph = pydotplus.graph_from_dot_data(dot_data.getvalue())
+  if fileName:
+    with open(os.path.join('figures', fileName), 'wb') as f:
+      f.write(graph.create_svg())
+  return SVG(graph.create_svg())
 
 def tryAllClassifers(Xtrain, Xtest, ytrain, ytest):
   # try with different classifiers
@@ -65,7 +74,7 @@ def tryClassifiersCV(X, y, models=None, cv=5):
   # cross validation
   if models is None:
     models = [tree.DecisionTreeClassifier(),
-              tree.DecisionTreeClassifier(min_samples_split=4, max_depth=4, min_samples_leaf=3, 
+              tree.DecisionTreeClassifier(min_samples_split=4, max_depth=3, min_samples_leaf=4, 
                 splitter='best', min_impurity_decrease=0., class_weight='balanced', ),
               ensemble.RandomForestClassifier(),
               ensemble.AdaBoostClassifier(),
@@ -183,8 +192,8 @@ X, y = trainSet.drop('flag', axis=1), trainSet.flag
 # %%
 # rough test
 pipe = Pipeline([('scaler', preprocessing.StandardScaler()),
-                 ('DecisionTree', tree.DecisionTreeClassifier(min_samples_split=4, max_depth=4, 
-                                                              min_samples_leaf=3, splitter='best', 
+                 ('DecisionTree', tree.DecisionTreeClassifier(min_samples_split=4, max_depth=3, 
+                                                              min_samples_leaf=4, splitter='best', 
                                                               min_impurity_decrease=0., class_weight='balanced'))
                 ])
 # cross-validation
@@ -230,7 +239,7 @@ gridSearch3 = paramSearch2d(paramSearch3, X, y)
 # => best
 
 # %%
-paramSearch4 = {'max_leaf_nodes': range(10, 500, 10), 'max_depth':range(2, 20, 1)}
+paramSearch4 = {'max_leaf_nodes': range(1, 100, 2), 'max_depth':range(2, 20, 1)}
 gridSearch4 = paramSearch2d(paramSearch4, X, y)
 # => max_depth <=4
 
@@ -245,7 +254,7 @@ gridSearch6 = paramSearch2d(paramSearch6, X, y)
 # => min_impurity_decrease = 0
 
 # %%
-bestModel = tree.DecisionTreeClassifier(min_samples_split=4, max_depth=4, min_samples_leaf=3, 
+bestModel = tree.DecisionTreeClassifier(min_samples_split=4, max_depth=3, min_samples_leaf=4, 
   splitter='best', min_impurity_decrease=0., class_weight='balanced', )
 basicModel = tree.DecisionTreeClassifier()
 bestModelScores = model_selection.cross_val_score(bestModel, X, y, cv=20, n_jobs=-1)
