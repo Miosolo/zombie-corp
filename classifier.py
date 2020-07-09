@@ -11,12 +11,12 @@ from sklearn.pipeline import Pipeline
 # from imblearn.over_sampling import SMOTE
 # from imblearn.under_sampling import RandomUnderSampler
 
-# # Decision Tree Viz
-# from sklearn.tree import DecisionTreeRegressor, export_graphviz
-# from sklearn.externals.six import StringIO
-# import pydotplus
-# import graphviz
-# from IPython.display import SVG
+# Decision Tree Viz
+from sklearn.tree import DecisionTreeRegressor, export_graphviz
+from sklearn.externals.six import StringIO
+import pydotplus
+import graphviz
+from IPython.display import SVG
 
 import pickle
 
@@ -75,16 +75,20 @@ def tryClassifiersCV(X, y, models=None, cv=5):
   if models is None:
     models = [tree.DecisionTreeClassifier(),
               tree.DecisionTreeClassifier(min_samples_split=4, max_depth=3, min_samples_leaf=4, 
-                splitter='best', min_impurity_decrease=0., class_weight='balanced', ),
+                splitter='best', min_impurity_decrease=0., ),
               ensemble.RandomForestClassifier(),
               ensemble.AdaBoostClassifier(),
               ensemble.GradientBoostingClassifier()]
+    labels = ['DecisionTreeClassifier',
+              'DecisionTreeClassifier(tuned)',
+              'RandomForestClassifier',
+              'AdaBoostClassifier',
+              'GradientBoostingClassifier']
   scores = {}
-  for model in models:
+  for model, name in zip(models, labels):
     score = model_selection.cross_val_score(model, X, y, cv=cv, n_jobs=-1)
-    modelName = type(model).__name__
-    scores[modelName] = score
-    plt.plot(score, label=modelName)
+    scores[name] = score
+    plt.plot(score, label=name)
   plt.legend()
 
   return scores
@@ -191,10 +195,10 @@ X, y = trainSet.drop('flag', axis=1), trainSet.flag
 
 # %%
 # rough test
-pipe = Pipeline([('scaler', preprocessing.StandardScaler()),
+pipe = Pipeline([ # ('scaler', preprocessing.StandardScaler()),
                  ('DecisionTree', tree.DecisionTreeClassifier(min_samples_split=4, max_depth=3, 
                                                               min_samples_leaf=4, splitter='best', 
-                                                              min_impurity_decrease=0., class_weight='balanced'))
+                                                              min_impurity_decrease=0., ))
                 ])
 # cross-validation
 selfScores = model_selection.cross_val_score(pipe, X, y, cv=20, n_jobs=-1)
@@ -255,10 +259,10 @@ gridSearch6 = paramSearch2d(paramSearch6, X, y)
 
 # %%
 bestModel = tree.DecisionTreeClassifier(min_samples_split=4, max_depth=3, min_samples_leaf=4, 
-  splitter='best', min_impurity_decrease=0., class_weight='balanced', )
+  splitter='best', min_impurity_decrease=0., )
 basicModel = tree.DecisionTreeClassifier()
 bestModelScores = model_selection.cross_val_score(bestModel, X, y, cv=20, n_jobs=-1)
 basicModelScores = model_selection.cross_val_score(basicModel, X, y, cv=20, n_jobs=-1)
-plt.plot(bestModelScores, label='selected')
+plt.plot(bestModelScores, label='tuned')
 plt.plot(basicModelScores, label='default')
 plt.legend()
